@@ -1,0 +1,18 @@
+version: "3.7"
+services:
+  db:
+    image: postgres
+    container_name: stocks_db
+    ports:
+      - "15432:5432"
+    volumes:
+      # - db-data:/var/lib/postgresql/data
+      - type: bind
+        source: ./data
+        target: /var/lib/postgresql/data
+      - type: bind
+        source: ./src
+        target: /mnt
+
+# volumes:
+#   db-data:
