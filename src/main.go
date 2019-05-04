@@ -18,35 +18,34 @@ import (
 
 func main() {
 	configFile := flag.String("config-file", fmt.Sprintf("%s/src/config.json", os.Getenv("PWD")), "the path to the config file")
-	configFile := flag.String("log-file", "/var/log/stockdata.log", "the path to the config file")
+	logFile := flag.String("log-file", "/var/log/stockdata.log", "the path to the config file")
 	var a App
-	a.init()
+	var err error
+	if err = a.init(*configFile, *logFile); err != nil {
+		a.Logger.Fatal(err)
+	}
 	defer a.DB.Close()
 	defer a.LogFile.Close()
 	defer a.Logger.Close()
 
-	var err error
-	if err = a.Config.Read(configFile); err != nil {
-		a.Logger.Fatal(err)
-	}
-
 	var id string
-	var ct int
-	ticker := time.NewTicker(time.Hour)
-	for _ := range ticker.C {
-		ct = time.Now().Hour()
-		if (ct > 9) && (ct < 5) {
-			for _, symbol := range config.Stocks {
-				id = uuid.New().String()
-				a.GetAndRecord(id, symbol)
-			}
-		}
+	// var ct int
+	// ticker := time.NewTicker(time.Hour)
+	// for _ := range ticker.C {
+	// 	ct = time.Now().Hour()
+	// 	if (ct > 9) && (ct < 5) {
+	for i, symbol := range a.Config.Stocks {
+		id = uuid.New().String()
+		a.Config.Stocks[i] = a.GetAndRecord(id, symbol)
 	}
+	a.Config.Write(*configFile)
+	// 	}
+	// }
 
 }
 
 type Config struct {
-	Stocks []StockMeta
+	Stocks []StockInfo
 }
 
 func (c *Config) Read(path string) error {
@@ -69,6 +68,18 @@ func (c *Config) Read(path string) error {
 	return nil
 }
 
+func (c *Config) Write(path string) error {
+	var err error
+	var dat []byte
+	if dat, err = json.Marshal(c); err != nil {
+		return err
+	}
+	if err = ioutil.WriteFile(path, dat, 0644); err != nil {
+		return err
+	}
+	return nil
+}
+
 type App struct {
 	Config
 	DB      *sql.DB
@@ -76,9 +87,14 @@ type App struct {
 	Logger  *logger.Logger
 }
 
-func (a *App) init(logFile string) {
+func (a *App) init(configFile string, logFile string) error {
 	a.initLogger(logFile)
 	a.initDB()
+
+	if err := a.Config.Read(configFile); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (a *App) initLogger(logPath string) {
@@ -109,6 +125,12 @@ func (a *App) initDB() {
 	a.Logger.Info("Successfully connected to db!")
 }
 
+type StockInfo struct {
+	Symbol string
+	MaxId  int
+	MinId  int
+}
+
 type SymbolData struct {
 	Id       string
 	Datetime string
@@ -117,16 +139,16 @@ type SymbolData struct {
 	Error    string
 }
 
-func (a *App) GetAndRecord(id string, symbol string) {
+func (a *App) GetAndRecord(id string, symbol StockInfo) StockInfo {
 	var x SymbolData
 	x.Id = id
 	x.Datetime = time.Now().Format("2006-01-02 15:04:05-07")
-	a.Logger.Infof("%s - Getting data for %s", id, symbol)
-	x.Symbol = symbol
+	a.Logger.Infof("%s - Getting data for %s", id, symbol.Symbol)
+	x.Symbol = symbol.Symbol
 	var res *http.Response
 	var err, ReqErr error
-	if res, err = stocktwits.GetStreamSymbol(symbol); err != nil {
-		// return err
+	params := map[string]interface{}{"since": symbol.MaxId}
+	if res, err = stocktwits.GetStreamSymbol(x.Symbol, params); err != nil {
 		a.Logger.Errorf("%s - %v", id, err)
 	}
 	a.Logger.Infof("%s - Reading response body", id)
@@ -139,9 +161,15 @@ func (a *App) GetAndRecord(id string, symbol string) {
 	defer res.Body.Close()
 	a.Logger.Infof("%s - Inserting data to DB", id)
 	if _, err = a.DB.Exec("INSERT INTO symbolstream.data VALUES ($1, $2, $3, $4, $5)", x.Id, x.Datetime, x.Symbol, x.Response, x.Error); err != nil {
-		// return err
 		a.Logger.Errorf("%s - %v", id, err)
 	}
+	var tmp stocktwits.StreamSymbol
+	if err = json.Unmarshal(body, &tmp); err != nil {
+		a.Logger.Errorf("%s - %v", id, err)
+	} else {
+		symbol.MaxId = tmp.GetMaxId()
+		symbol.MinId = tmp.GetMinId()
+	}
 	a.Logger.Infof("%s - Returning successfully", id)
-	// return nil
+	return symbol
 }
