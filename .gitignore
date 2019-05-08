@@ -2,3 +2,4 @@ data/
 stockdata.log
 .ipynb_checkpoints/
 querying.ipynb
+response_data.json

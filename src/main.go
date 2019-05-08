@@ -36,6 +36,7 @@ func main() {
 	// 	if (ct > 9) && (ct < 5) {
 	for i, symbol := range a.Config.Stocks {
 		id = uuid.New().String()
+		fmt.Printf("%s, running symbol `%s`\n", id, symbol.Symbol)
 		a.Config.Stocks[i] = a.GetAndRecord(id, symbol)
 	}
 	a.Config.Write(*configFile)
@@ -117,12 +118,12 @@ func (a *App) initDB() {
 	psqlInfo := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", config["dbhost"], config["dbport"], config["dbuser"], config["dbpass"], config["dbname"])
 
 	if a.DB, err = sql.Open("postgres", psqlInfo); err != nil {
-		a.Logger.Fatal(err)
+		a.Logger.Fatal(fmt.Sprintf("error opening database connection: %s", err.Error()))
 	}
 	if err = a.DB.Ping(); err != nil {
-		a.Logger.Fatal(err)
+		a.Logger.Fatal(fmt.Sprintf("error pinging database: %s", err.Error()))
 	}
-	a.Logger.Info("Successfully connected to db!")
+	a.Logger.Info("Successfully connected to database!")
 }
 
 type StockInfo struct {
@@ -143,7 +144,7 @@ func (a *App) GetAndRecord(id string, symbol StockInfo) StockInfo {
 	var x SymbolData
 	x.Id = id
 	x.Datetime = time.Now().Format("2006-01-02 15:04:05-07")
-	a.Logger.Infof("%s - Getting data for %s", id, symbol.Symbol)
+	a.Logger.Infof("%s - Getting data for `%s`", id, symbol.Symbol)
 	x.Symbol = symbol.Symbol
 	var res *http.Response
 	var err, ReqErr error
@@ -159,8 +160,8 @@ func (a *App) GetAndRecord(id string, symbol StockInfo) StockInfo {
 		x.Response = string(body)
 	}
 	defer res.Body.Close()
-	a.Logger.Infof("%s - Inserting data to DB", id)
-	if _, err = a.DB.Exec("INSERT INTO symbolstream.data VALUES ($1, $2, $3, $4, $5)", x.Id, x.Datetime, x.Symbol, x.Response, x.Error); err != nil {
+	a.Logger.Infof("%s - Inserting data to database", id)
+	if _, err = a.DB.Exec("INSERT INTO symbolstream.response_raw VALUES ($1, $2, $3, $4, $5)", x.Id, x.Datetime, x.Symbol, x.Response, x.Error); err != nil {
 		a.Logger.Errorf("%s - %v", id, err)
 	}
 	var tmp stocktwits.StreamSymbol

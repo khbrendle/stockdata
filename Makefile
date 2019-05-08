@@ -9,3 +9,6 @@ stop:
 
 init:
 	docker exec stocks_db psql -U postgres -f /mnt/init.sql
+
+run:
+	go run src/main.go
